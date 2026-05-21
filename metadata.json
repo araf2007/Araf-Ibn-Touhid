@@ -1,0 +1,6 @@
+{
+  "name": "Bangladesh Scholarship Finder",
+  "description": "A comprehensive portal and AI advisor for Bangladeshi students seeking fully funded international and national scholarships.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

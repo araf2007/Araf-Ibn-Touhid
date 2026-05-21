@@ -1,0 +1,89 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened Global Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Auth tokens contain custom claims or verified elements.
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Validation Blueprints
+    function isValidUser(data) {
+      return data.uid is string && data.uid == request.auth.uid
+        && data.degreeLevel is string && (data.degreeLevel == 'Bachelor' || data.degreeLevel == 'Master' || data.degreeLevel == 'PhD')
+        && data.currentCGPA is number && data.currentCGPA >= 0.0 && data.currentCGPA <= 5.0
+        && data.ieltsScore is number && data.ieltsScore >= 0.0 && data.ieltsScore <= 9.0
+        && data.workExperienceYears is number && data.workExperienceYears >= 0 && data.workExperienceYears <= 50
+        && data.fieldOfStudy is string && data.fieldOfStudy.size() <= 100
+        && data.hasMoi is bool
+        && data.updatedAt is timestamp;
+    }
+
+    // Strict structure checks for bookmarks creation
+    function isValidBookmark(data) {
+      return data.userId is string && data.userId == request.auth.uid
+        && data.scholarshipId is string && data.scholarshipId.size() <= 100
+        && data.createdAt is timestamp;
+    }
+
+    // MATCH BLOCKS FOR COLLECTIONS
+
+    // Users Collection
+    match /users/{userId} {
+      allow get: if isSignedIn() && userId == request.auth.uid;
+      
+      allow create: if isEmailVerified() && isValidId(userId) && userId == request.auth.uid
+        && incoming().keys().hasAll(['uid', 'degreeLevel', 'currentCGPA', 'ieltsScore', 'workExperienceYears', 'fieldOfStudy', 'hasMoi', 'updatedAt'])
+        && incoming().keys().size() == 8
+        && incoming().updatedAt == request.time
+        && isValidUser(incoming());
+
+      allow update: if isEmailVerified() && isValidId(userId) && userId == request.auth.uid
+        && incoming().updatedAt == request.time
+        && incoming().uid == existing().uid
+        && isValidUser(incoming())
+        && incoming().diff(existing()).affectedKeys().hasOnly(['degreeLevel', 'currentCGPA', 'ieltsScore', 'workExperienceYears', 'fieldOfStudy', 'hasMoi', 'updatedAt']);
+
+      allow delete: if false; // Profiles are permanent once enrolled
+    }
+
+    // Bookmarks Collection
+    match /bookmarks/{bookmarkId} {
+      // Secure list query & single doc read - do not allow blank reads
+      allow get, list: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      allow create: if isEmailVerified() && isValidId(bookmarkId)
+        && incoming().keys().hasAll(['userId', 'scholarshipId', 'createdAt'])
+        && incoming().keys().size() == 3
+        && incoming().createdAt == request.time
+        && isValidBookmark(incoming());
+
+      allow update: if false; // Bookmarks cannot be modified after creation
+
+      allow delete: if isEmailVerified() && existing().userId == request.auth.uid;
+    }
+
+  }
+}

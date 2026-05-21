@@ -1,0 +1,41 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profiles containing academic status",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "degreeLevel": { "type": "string", "enum": ["Bachelor", "Master", "PhD"] },
+        "currentCGPA": { "type": "number" },
+        "ieltsScore": { "type": "number" },
+        "workExperienceYears": { "type": "number" },
+        "fieldOfStudy": { "type": "string" },
+        "hasMoi": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "degreeLevel", "currentCGPA", "ieltsScore", "workExperienceYears", "fieldOfStudy", "hasMoi", "updatedAt"]
+    },
+    "Bookmark": {
+      "title": "Bookmark",
+      "description": "User bookmarked scholarships",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "scholarshipId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "scholarshipId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User academic profile"
+    },
+    "bookmarks/{bookmarkId}": {
+      "schema": "Bookmark",
+      "description": "Bookmarks for scholarships"
+    }
+  }
+}
