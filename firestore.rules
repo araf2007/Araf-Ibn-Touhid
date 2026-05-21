@@ -48,6 +48,15 @@ service cloud.firestore {
         && data.createdAt is timestamp;
     }
 
+    // Strict structure checks for payments creation
+    function isValidPayment(data) {
+      return data.userId is string && data.userId == request.auth.uid
+        && data.scholarshipId is string && data.scholarshipId.size() <= 100
+        && data.trxId is string && data.trxId.size() >= 8 && data.trxId.size() <= 20
+        && data.amount is number && data.amount == 10
+        && data.createdAt is timestamp;
+    }
+
     // MATCH BLOCKS FOR COLLECTIONS
 
     // Users Collection
@@ -83,6 +92,19 @@ service cloud.firestore {
       allow update: if false; // Bookmarks cannot be modified after creation
 
       allow delete: if isEmailVerified() && existing().userId == request.auth.uid;
+    }
+
+    // Payments Collection
+    match /payments/{paymentId} {
+      allow get, list: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      allow create: if isEmailVerified() && isValidId(paymentId)
+        && incoming().keys().hasAll(['userId', 'scholarshipId', 'trxId', 'amount', 'createdAt'])
+        && incoming().keys().size() == 5
+        && incoming().createdAt == request.time
+        && isValidPayment(incoming());
+
+      allow update, delete: if false;
     }
 
   }

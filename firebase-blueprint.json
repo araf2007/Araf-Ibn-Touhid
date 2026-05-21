@@ -26,6 +26,19 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "scholarshipId", "createdAt"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "User payments for scholarship AI diagnostics via bKash",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "scholarshipId": { "type": "string" },
+        "trxId": { "type": "string" },
+        "amount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "scholarshipId", "trxId", "amount", "createdAt"]
     }
   },
   "firestore": {
@@ -36,6 +49,10 @@
     "bookmarks/{bookmarkId}": {
       "schema": "Bookmark",
       "description": "Bookmarks for scholarships"
+    },
+    "payments/{paymentId}": {
+      "schema": "Payment",
+      "description": "Recorded bKash payments for scholarship AI diagnostics"
     }
   }
 }

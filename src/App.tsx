@@ -8,6 +8,7 @@ import { AIEligibilityReport } from './components/AIEligibilityReport.js';
 import { ScholarshipAdvisorChat } from './components/ScholarshipAdvisorChat.js';
 import { TimelineMilestones } from './components/TimelineMilestones.js';
 import { BangladeshiResourceGuide } from './components/BangladeshiResourceGuide.js';
+import { BkashPaymentModal } from './components/BkashPaymentModal.js';
 import { 
   GraduationCap, 
   Search, 
@@ -28,7 +29,9 @@ import {
   saveUserProfile, 
   fetchUserBookmarks, 
   addBookmark, 
-  removeBookmark 
+  removeBookmark,
+  fetchUserPayments,
+  checkPaymentStatus
 } from './firebase.js';
 import { onAuthStateChanged, User } from 'firebase/auth';
 
@@ -41,6 +44,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCountry, setSelectedCountry] = useState('All');
   const [selectedDegree, setSelectedDegree] = useState('All');
+  const [selectedMajor, setSelectedMajor] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'recommended' | 'deadlineSoonest'>('recommended');
   
   // Active User Profile
@@ -58,6 +62,10 @@ export default function App() {
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [bookmarkedScholarshipIds, setBookmarkedScholarshipIds] = useState<string[]>([]);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  // Unlocked Diagnostics Payments
+  const [unlockedScholarshipIds, setUnlockedScholarshipIds] = useState<string[]>([]);
+  const [pendingPaymentScholarship, setPendingPaymentScholarship] = useState<Scholarship | null>(null);
 
   // Active Context & AI states
   const [focusedScholarship, setFocusedScholarship] = useState<Scholarship | null>(null);
@@ -86,11 +94,20 @@ export default function App() {
           // Fetch synced bookmarks
           const bookmarks = await fetchUserBookmarks(currentUser.uid);
           setBookmarkedScholarshipIds(bookmarks);
+
+          // Fetch unlocked/paid diagnostics
+          const payments = await fetchUserPayments(currentUser.uid);
+          const localPayments = JSON.parse(localStorage.getItem('unlocked_diagnostics') || '{}');
+          const localKeys = Object.keys(localPayments);
+          const combined = Array.from(new Set([...payments, ...localKeys]));
+          setUnlockedScholarshipIds(combined);
         } catch (error) {
           console.error("Cloud hydration error:", error);
         }
       } else {
         setBookmarkedScholarshipIds([]);
+        const localPayments = JSON.parse(localStorage.getItem('unlocked_diagnostics') || '{}');
+        setUnlockedScholarshipIds(Object.keys(localPayments));
       }
     });
     
@@ -162,6 +179,10 @@ export default function App() {
       result = result.filter(s => s.degreeLevels.includes(selectedDegree as any));
     }
 
+    if (selectedMajor) {
+      result = result.filter(s => s.popularMajors.includes(selectedMajor));
+    }
+
     // Apply Sorting: Deadline Soonest (relative urgency based on current date May 2026)
     if (sortBy === 'deadlineSoonest') {
       const DEADLINE_MAP: Record<string, { month: number; day: number }> = {
@@ -199,10 +220,20 @@ export default function App() {
     }
 
     setFilteredScholarships(result);
-  }, [searchQuery, selectedCountry, selectedDegree, sortBy, allScholarships]);
+  }, [searchQuery, selectedCountry, selectedDegree, selectedMajor, sortBy, allScholarships]);
 
   // Run Real-Time AI Diagnostics
   const handleRunAiDiagnostics = async (scholarship: Scholarship) => {
+    // Guard: Verify bKash payment clearance before running AI Diagnostics
+    const localPayments = JSON.parse(localStorage.getItem('unlocked_diagnostics') || '{}');
+    const isUnlockedLocally = !!localPayments[scholarship.id];
+    const isUnlockedCloud = unlockedScholarshipIds.includes(scholarship.id);
+
+    if (!isUnlockedLocally && !isUnlockedCloud) {
+      setPendingPaymentScholarship(scholarship);
+      return;
+    }
+
     setFocusedScholarship(scholarship);
     setActiveTab('diagnostics');
     setIsLoadingReport(true);
@@ -483,6 +514,49 @@ We faced an issue contacting the AI processing servers.
                       </select>
                     </div>
                   </div>
+
+                  {/* Active Filters Row */}
+                  {(selectedMajor || selectedCountry !== 'All' || selectedDegree !== 'All' || searchQuery !== '') && (
+                    <div className="flex flex-wrap items-center gap-1.5 pt-3 border-t border-slate-100 text-xs text-slate-500 font-sans" id="active-filters-container">
+                      <span className="font-mono text-[9px] uppercase font-bold text-slate-400 mr-1">Active Filters:</span>
+                      {searchQuery !== '' && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-50 text-slate-700 rounded-sm border border-slate-200 text-[11px]" id="filter-chip-search">
+                          <span>Search: <strong className="text-slate-900">"{searchQuery}"</strong></span>
+                          <button onClick={() => setSearchQuery('')} className="hover:text-red-500 font-bold ml-1 cursor-pointer focus:outline-none text-slate-400" aria-label="Clear search">×</button>
+                        </span>
+                      )}
+                      {selectedCountry !== 'All' && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-50 text-slate-700 rounded-sm border border-slate-200 text-[11px]" id="filter-chip-country">
+                          <span>🌐 <strong className="text-slate-900">{selectedCountry}</strong></span>
+                          <button onClick={() => setSelectedCountry('All')} className="hover:text-red-500 font-bold ml-1 cursor-pointer focus:outline-none text-slate-400" aria-label="Clear country">×</button>
+                        </span>
+                      )}
+                      {selectedDegree !== 'All' && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-50 text-slate-700 rounded-sm border border-slate-200 text-[11px]" id="filter-chip-degree">
+                          <span>🎓 <strong className="text-slate-900">{selectedDegree}</strong></span>
+                          <button onClick={() => setSelectedDegree('All')} className="hover:text-red-500 font-bold ml-1 cursor-pointer focus:outline-none text-slate-400" aria-label="Clear degree">×</button>
+                        </span>
+                      )}
+                      {selectedMajor && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-800 rounded-sm border border-emerald-200 font-semibold text-[11px]" id="filter-chip-major">
+                          <span>📚 Major: <strong className="text-emerald-950">{selectedMajor}</strong></span>
+                          <button onClick={() => setSelectedMajor(null)} className="hover:text-emerald-600 font-bold ml-1 cursor-pointer focus:outline-none text-emerald-500" aria-label="Clear major">×</button>
+                        </span>
+                      )}
+                      <button 
+                        onClick={() => {
+                          setSearchQuery('');
+                          setSelectedCountry('All');
+                          setSelectedDegree('All');
+                          setSelectedMajor(null);
+                        }}
+                        className="text-[10px] font-bold text-slate-450 hover:text-red-600 uppercase hover:underline ml-auto cursor-pointer focus:outline-none py-1 px-2 hover:bg-red-50 rounded-xs transition-colors"
+                        id="clear-all-filters-btn"
+                      >
+                        Reset All Filters
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Grid Results */}
@@ -497,6 +571,9 @@ We faced an issue contacting the AI processing servers.
                         userProfile={userProfile}
                         isBookmarked={bookmarkedScholarshipIds.includes(sch.id)}
                         onToggleBookmark={handleToggleBookmark}
+                        onSelectMajor={(major) => setSelectedMajor(prev => prev === major ? null : major)}
+                        activeMajor={selectedMajor}
+                        isUnlocked={unlockedScholarshipIds.includes(sch.id)}
                       />
                     ))}
                   </div>
@@ -558,6 +635,25 @@ We faced an issue contacting the AI processing servers.
           onCheckEligibilityInModal={(s) => {
             setModalScholarship(null);
             handleRunAiDiagnostics(s);
+          }}
+          userProfile={userProfile}
+          user={user}
+        />
+      )}
+
+      {/* bKash Payment Modal */}
+      {pendingPaymentScholarship && (
+        <BkashPaymentModal 
+          scholarshipName={pendingPaymentScholarship.title}
+          scholarshipId={pendingPaymentScholarship.id}
+          userId={user ? user.uid : null}
+          onClose={() => setPendingPaymentScholarship(null)}
+          onPaymentSuccess={(trxId) => {
+            setUnlockedScholarshipIds(prev => [...prev, pendingPaymentScholarship.id]);
+            const unlockedScholarship = pendingPaymentScholarship;
+            setPendingPaymentScholarship(null);
+            // Immediately compile the diagnostics now that the bill is cleared!
+            handleRunAiDiagnostics(unlockedScholarship);
           }}
         />
       )}

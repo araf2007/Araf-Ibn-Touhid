@@ -25,6 +25,7 @@ export interface UserProfile {
   workExperienceYears: number;
   fieldOfStudy: string;
   hasMoi: boolean; // Medium of Instruction certificate from Bangladeshi university
+  linkedDocuments?: { id: string; name: string; url: string; type: string }[];
 }
 
 export interface EligibilityReport {

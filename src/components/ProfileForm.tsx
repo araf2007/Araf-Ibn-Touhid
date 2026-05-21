@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserProfile } from '../types';
 import { 
   Sparkles, 
@@ -11,6 +11,7 @@ import {
   Trash2,
   Plus
 } from 'lucide-react';
+import { getCachedToken, loginWithGoogle } from '../firebase.js';
 
 interface ProfileFormProps {
   initialProfile: UserProfile;
@@ -25,6 +26,117 @@ export const ProfileForm: React.FC<ProfileFormProps> = ({
 }) => {
   const [profile, setProfile] = useState<UserProfile>(initialProfile);
   const [cgpaWarning, setCgpaWarning] = useState<string | null>(null);
+
+  // Sync profile when cloud database updates
+  useEffect(() => {
+    setProfile(initialProfile);
+  }, [initialProfile]);
+
+  // Google Picker Manual Input Link State
+  const [manualLinkType, setManualLinkType] = useState<string | null>(null);
+  const [manualName, setManualName] = useState('');
+  const [manualUrl, setManualUrl] = useState('');
+
+  // Handle Manual Document Linking
+  const saveManualLink = (type: string) => {
+    if (!manualName.trim() || !manualUrl.trim()) return;
+    const newDoc = {
+      id: 'manual_' + Date.now(),
+      name: manualName,
+      url: manualUrl.startsWith('http') ? manualUrl : 'https://' + manualUrl,
+      type: type
+    };
+    const existingDocs = profile.linkedDocuments || [];
+    const updatedDocs = [
+      ...existingDocs.filter(d => d.type !== type),
+      newDoc
+    ];
+    updateProfileField('linkedDocuments', updatedDocs);
+    setManualLinkType(null);
+    setManualName('');
+    setManualUrl('');
+  };
+
+  // Handle Google Drive Picker triggering
+  const openGooglePicker = async (documentType: string) => {
+    let token = getCachedToken();
+    if (!token) {
+      try {
+        const wantsAuth = window.confirm("Google Authorization is required to securely select files from your Google Drive. Would you like to connect right now?");
+        if (!wantsAuth) return;
+        const result = await loginWithGoogle();
+        token = getCachedToken();
+      } catch (err) {
+        console.error("Authentication failed:", err);
+        return;
+      }
+    }
+
+    if (!token) {
+      alert("Unable to acquire Google OAuth access token. Please retry login.");
+      return;
+    }
+
+    try {
+      const gapi = (window as any).gapi;
+      if (!gapi) {
+        alert("Google API script has not fully loaded yet. Please wait a second and retry!");
+        return;
+      }
+
+      gapi.load('picker', {
+        callback: () => {
+          try {
+            const pickerBuilder = new (window as any).google.picker.PickerBuilder();
+            const view = new (window as any).google.picker.DocsView((window as any).google.picker.ViewId.DOCS)
+              .setMimeTypes("application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+
+            const picker = pickerBuilder
+              .addView(view)
+              .setOAuthToken(token)
+              .setDeveloperKey("AIzaSyC7_iOa7gE4F41NLv8xOUElE-iAfPGseQI") // Same as Firebase Web API Key
+              .setCallback((data: any) => {
+                if (data.action === (window as any).google.picker.Action.PICKED) {
+                  const file = data.docs[0];
+                  const newDoc = {
+                    id: file.id,
+                    name: file.name,
+                    url: file.url || `https://drive.google.com/file/d/${file.id}/view`,
+                    type: documentType,
+                  };
+
+                  const existingDocs = profile.linkedDocuments || [];
+                  const updatedDocs = [
+                    ...existingDocs.filter(d => d.type !== documentType),
+                    newDoc
+                  ];
+                  updateProfileField('linkedDocuments', updatedDocs);
+                }
+              })
+              .build();
+
+            picker.setVisible(true);
+          } catch (pickerErr) {
+            console.error("Error creating Google Picker:", pickerErr);
+            alert("Unable to open dynamic Picker overlay. It might be due to development iFrame origin rules. Please use the 'Or manually' option to input your Google Drive file URL!");
+          }
+        }
+      });
+    } catch (err) {
+      console.error("Picker error:", err);
+      alert("Unable to open Google Picker. Recommended: Use the manual Google Drive link fallback!");
+    }
+  };
+
+  // Remove / Disconnect documents from profile (Mutating Operation!)
+  const handleRemoveDocument = (type: string) => {
+    const confirmed = window.confirm(`Are you sure you want to decouple the "${type}" document from your active scholarship profile?`);
+    if (!confirmed) return;
+
+    const existingDocs = profile.linkedDocuments || [];
+    const updatedDocs = existingDocs.filter(d => d.type !== type);
+    updateProfileField('linkedDocuments', updatedDocs);
+  };
 
   // High School / SSC / HSC conversion widget state
   const [isConverterOpen, setIsConverterOpen] = useState(false);
@@ -478,6 +590,123 @@ export const ProfileForm: React.FC<ProfileFormProps> = ({
             <span className="text-[10px] text-slate-400 block mt-0.5 leading-snug">
               Certified that my bachelors program in Bangladesh was taught in English.
             </span>
+          </div>
+        </div>
+
+        {/* Linked Documents (Google Drive Picker) */}
+        <div className="pt-4 border-t border-slate-200/80 space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block">
+              📁 Academic Files (Google Drive)
+            </label>
+            <span className="text-[9px] font-mono bg-emerald-50 text-emerald-700 px-1.5 py-0.5 border border-emerald-100 rounded-sm uppercase font-bold">Drive Picker</span>
+          </div>
+          <p className="text-[10.5px] text-slate-450 leading-relaxed font-sans">
+            Reference items from your Google Drive in customized inquiries using the Gmail composer.
+          </p>
+
+          <div className="space-y-2">
+            {(['CV / Resume', 'Academic Transcript', 'Statement of Purpose'] as const).map((docType) => {
+              const file = (profile.linkedDocuments || []).find(d => d.type === docType);
+              return (
+                <div key={docType} className="bg-slate-50 border border-slate-200 rounded-sm p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-slate-750">{docType}</span>
+                    {file ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] text-[#059669] font-bold bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-sm">
+                          Connected
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveDocument(docType)}
+                          className="text-[9px] font-bold text-red-600 hover:text-white hover:bg-red-600 px-2 py-0.5 rounded-sm border border-slate-250 hover:border-red-600 transition-colors cursor-pointer"
+                        >
+                          De-link
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openGooglePicker(docType)}
+                          className="py-1 px-2.5 text-[10px] font-bold bg-white border border-slate-200 hover:border-slate-350 hover:bg-slate-100/50 text-slate-700 rounded-sm cursor-pointer transition-colors"
+                        >
+                          Pick File
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setManualLinkType(manualLinkType === docType ? null : docType)}
+                          className="text-[10px] text-slate-450 hover:text-slate-800 underline decor-dotted cursor-pointer"
+                        >
+                          Manual Link
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {file && (
+                    <div className="flex items-center justify-between text-xs bg-white border border-slate-150 p-2.5 rounded-sm shadow-2xs font-sans">
+                      <div className="flex items-center gap-1.5 overflow-hidden pr-2">
+                        <span className="text-slate-500 text-sm shrink-0">📄</span>
+                        <span className="font-bold text-slate-750 truncate" title={file.name}>
+                          {file.name}
+                        </span>
+                      </div>
+                      <a
+                        href={file.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[10px] text-[#047857] hover:text-[#064e3b] font-bold border border-slate-200 bg-slate-50 hover:bg-slate-100/60 px-2 py-1 rounded-sm flex items-center gap-0.5 shrink-0"
+                      >
+                        View Drive
+                      </a>
+                    </div>
+                  )}
+
+                  {manualLinkType === docType && (
+                    <div className="border border-slate-200 border-dashed rounded-sm bg-white p-3 space-y-2.5 text-xs font-sans">
+                      <div className="space-y-1">
+                        <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wide">Filename / Label:</span>
+                        <input
+                          type="text"
+                          value={manualName}
+                          onChange={(e) => setManualName(e.target.value)}
+                          className="w-full text-xs py-1.5 px-2 bg-slate-50 border border-slate-250 rounded-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white"
+                          placeholder="e.g. CV_Arafat_Standard.pdf"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wide">Google Drive Link:</span>
+                        <input
+                          type="text"
+                          value={manualUrl}
+                          onChange={(e) => setManualUrl(e.target.value)}
+                          className="w-full text-xs py-1.5 px-2 bg-slate-50 border border-slate-250 rounded-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white"
+                          placeholder="e.g. drive.google.com/file/d/..."
+                        />
+                      </div>
+                      <div className="flex justify-end gap-1.5 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setManualLinkType(null)}
+                          className="py-1 px-2.5 text-[10px] text-slate-500 font-semibold border hover:bg-slate-50 rounded-sm cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => saveManualLink(docType)}
+                          className="py-1 px-2.5 text-[10px] bg-slate-900 text-emerald-400 hover:text-emerald-300 font-bold border border-slate-900 rounded-sm cursor-pointer"
+                        >
+                          Link Document
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 

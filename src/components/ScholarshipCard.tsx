@@ -1,6 +1,6 @@
 import React from 'react';
 import { Scholarship, UserProfile } from '../types';
-import { GraduationCap, Calendar, Clock, Globe, Award, CheckCircle, Bookmark } from 'lucide-react';
+import { GraduationCap, Calendar, Clock, Globe, Award, CheckCircle, Bookmark, Sparkles } from 'lucide-react';
 
 interface ScholarshipCardProps {
   scholarship: Scholarship;
@@ -9,6 +9,9 @@ interface ScholarshipCardProps {
   userProfile?: UserProfile;
   isBookmarked?: boolean;
   onToggleBookmark?: (scholarshipId: string) => void;
+  onSelectMajor?: (major: string) => void;
+  activeMajor?: string | null;
+  isUnlocked?: boolean;
 }
 
 export const ScholarshipCard: React.FC<ScholarshipCardProps> = ({
@@ -18,6 +21,9 @@ export const ScholarshipCard: React.FC<ScholarshipCardProps> = ({
   userProfile,
   isBookmarked = false,
   onToggleBookmark,
+  onSelectMajor,
+  activeMajor,
+  isUnlocked = false,
 }) => {
   // Simple clientside eligibility heuristic check (for display badge)
   const isCgpaOk = !userProfile || userProfile.currentCGPA >= scholarship.cgpaRequirement;
@@ -105,6 +111,36 @@ export const ScholarshipCard: React.FC<ScholarshipCardProps> = ({
             </span>
           </div>
         </div>
+
+        {/* Popular Majors Interactive Tags */}
+        <div className="mb-4">
+          <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest block mb-1.5">
+            Popular Majors:
+          </span>
+          <div className="flex flex-wrap gap-1.5" id={`popular-majors-${scholarship.id}`}>
+            {scholarship.popularMajors.map((major, idx) => {
+              const isActive = activeMajor === major;
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onSelectMajor) onSelectMajor(major);
+                  }}
+                  className={`px-2 py-0.5 text-[10px] font-sans font-semibold rounded-xs border cursor-pointer transition-all duration-150 ${
+                    isActive
+                      ? 'bg-emerald-600 border-emerald-600 text-white shadow-xs hover:bg-emerald-500'
+                      : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-emerald-500 hover:text-emerald-700 hover:bg-emerald-50/20'
+                  }`}
+                  id={`major-tag-${scholarship.id}-${major.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+                >
+                  {major}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* Heuristic Match Meter (If user profile is added) */}
@@ -128,10 +164,25 @@ export const ScholarshipCard: React.FC<ScholarshipCardProps> = ({
       <div className="flex items-center gap-2 pt-2">
         <button
           onClick={() => onCheckEligibility(scholarship)}
-          className="flex-1 text-center py-2 px-3 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100/90 rounded-sm transition-colors cursor-pointer border border-emerald-600/20"
+          className={`flex-1 text-center py-2 px-2.5 text-xs font-bold rounded-sm transition-all duration-150 cursor-pointer border flex items-center justify-center gap-1 sm:gap-1.5 ${
+            isUnlocked 
+              ? 'text-emerald-700 bg-emerald-50 border-emerald-600/25 hover:bg-emerald-105 hover:bg-emerald-100/90' 
+              : 'text-[#E2136E] bg-pink-50/40 border-pink-100 hover:bg-pink-50 hover:border-pink-300'
+          }`}
           id={`check-eligibility-btn-${scholarship.id}`}
         >
-          AI Match Diagnostics
+          {isUnlocked ? (
+            <>
+              <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <span>AI Match Report</span>
+              <span className="text-[9px] px-1 py-0.2 bg-emerald-100 text-emerald-800 rounded-xs font-mono font-bold leading-none shrink-0 border border-emerald-200">PAID</span>
+            </>
+          ) : (
+            <>
+              <span>AI Match Report</span>
+              <span className="text-[10px] font-mono font-black text-rose-600 shrink-0 bg-pink-105 bg-pink-100 px-1 py-0.2 rounded-xs border border-pink-200 leading-none">10 ৳</span>
+            </>
+          )}
         </button>
         <button
           onClick={() => onSelect(scholarship)}

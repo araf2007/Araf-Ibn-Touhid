@@ -2,12 +2,26 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, User } from 'firebase/auth';
 import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, deleteDoc, Timestamp, getDocFromServer } from 'firebase/firestore';
 import { UserProfile } from './types.js';
-import firebaseConfig from '../firebase-applet-config.json';
+import firebaseConfig from './components/firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
 export const auth = getAuth();
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.addScope('https://www.googleapis.com/auth/drive.readonly');
+googleProvider.addScope('https://www.googleapis.com/auth/gmail.readonly');
+googleProvider.addScope('https://www.googleapis.com/auth/gmail.send');
+
+// In-memory cache for the OAuth access token
+let cachedAccessToken: string | null = null;
+
+export function getCachedToken(): string | null {
+  return cachedAccessToken;
+}
+
+export function setCachedToken(token: string | null) {
+  cachedAccessToken = token;
+}
 
 export enum OperationType {
   CREATE = 'create',
@@ -162,6 +176,10 @@ export async function removeBookmark(userId: string, scholarshipId: string) {
 export async function loginWithGoogle(): Promise<User> {
   try {
     const result = await signInWithPopup(auth, googleProvider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (credential?.accessToken) {
+      cachedAccessToken = credential.accessToken;
+    }
     return result.user;
   } catch (error) {
     console.error('Auth Popup Login Failure:', error);
@@ -172,6 +190,58 @@ export async function loginWithGoogle(): Promise<User> {
 // Sign Out
 export async function logout() {
   await signOut(auth);
+  cachedAccessToken = null;
+}
+
+// Helper: Fetch Payments to check if a scholarship has been unlocked
+export async function checkPaymentStatus(userId: string, scholarshipId: string): Promise<boolean> {
+  const path = 'payments';
+  try {
+    const q = query(
+      collection(db, 'payments'), 
+      where('userId', '==', userId), 
+      where('scholarshipId', '==', scholarshipId)
+    );
+    const querySnapshot = await getDocs(q);
+    return !querySnapshot.empty;
+  } catch (error) {
+    console.error('Payment fetch error, defaulting to false:', error);
+    return false;
+  }
+}
+
+// Helper: Fetch user's unlocked scholarship IDs (payments)
+export async function fetchUserPayments(userId: string): Promise<string[]> {
+  const path = 'payments';
+  try {
+    const q = query(collection(db, 'payments'), where('userId', '==', userId));
+    const querySnapshot = await getDocs(q);
+    const paidScholarships: string[] = [];
+    querySnapshot.forEach((doc) => {
+      paidScholarships.push(doc.data().scholarshipId);
+    });
+    return paidScholarships;
+  } catch (error) {
+    console.error("Failed to load user payments:", error);
+    return [];
+  }
+}
+
+// Helper: Save Payment Record
+export async function savePaymentRecord(userId: string, scholarshipId: string, trxId: string) {
+  const paymentId = `${userId}_${scholarshipId}`;
+  const path = `payments/${paymentId}`;
+  try {
+    await setDoc(doc(db, 'payments', paymentId), {
+      userId,
+      scholarshipId,
+      trxId,
+      amount: 10,
+      createdAt: Timestamp.now()
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
 }
 
 // Run test connection
