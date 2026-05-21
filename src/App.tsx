@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { Scholarship, UserProfile } from './types.js';
 import { scholarships } from './scholarshipsData.js';
 import { ScholarshipCard } from './components/ScholarshipCard.js';
@@ -578,6 +579,7 @@ We faced an issue contacting the AI processing servers.
         </div>
       </footer>
 
+      <Analytics />
     </div>
   );
 }
