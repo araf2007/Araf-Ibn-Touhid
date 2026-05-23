@@ -520,8 +520,8 @@ export const ProfileForm: React.FC<ProfileFormProps> = ({
           </div>
         </div>
 
-        {/* IELTS Score */}
-        <div className="grid grid-cols-2 gap-3">
+        {/* Standard Academic Entrance Scores (IELTS, SAT, Experience) */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-slate-600 block uppercase tracking-wider" htmlFor="profile-ielts">
               IELTS Score
@@ -530,13 +530,50 @@ export const ProfileForm: React.FC<ProfileFormProps> = ({
               id="profile-ielts"
               value={profile.ieltsScore}
               onChange={(e) => updateProfileField('ieltsScore', Number(e.target.value))}
-              className="w-full text-xs font-mono py-2 px-2 bg-white border border-slate-200 rounded-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              className="w-full text-xs font-mono py-2 px-2 bg-white border border-slate-200 rounded-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
             >
               <option value="0">No IELTS Yet</option>
               {[9.0, 8.5, 8.0, 7.5, 7.0, 6.5, 6.0, 5.5, 5.0, 4.5, 4.0].map((pt) => (
                 <option key={pt} value={pt}>IELTS {pt.toFixed(1)}</option>
               ))}
             </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-600 block uppercase tracking-wider" htmlFor="profile-sat">
+                SAT Score
+              </label>
+              {profile.degreeLevel === 'Bachelor' && (
+                <span className="text-[8px] font-mono font-bold text-emerald-600 bg-emerald-50 px-1 py-0.5 border border-emerald-100 rounded-none tracking-wider uppercase">Focus</span>
+              )}
+            </div>
+            <div className="relative flex items-center">
+              <input
+                id="profile-sat"
+                type="number"
+                min="400"
+                max="1600"
+                step="10"
+                placeholder="e.g. 1450"
+                value={profile.satScore || ''}
+                onChange={(e) => {
+                  const val = e.target.value === '' ? 0 : Math.min(1600, Math.max(0, Number(e.target.value)));
+                  updateProfileField('satScore', val);
+                }}
+                className="w-full text-xs font-mono py-2 pl-3 pr-10 bg-white border border-slate-200 rounded-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              />
+              {profile.satScore ? (
+                <button
+                  type="button"
+                  onClick={() => updateProfileField('satScore', 0)}
+                  className="absolute right-2 px-1 text-[9px] font-bold text-slate-400 hover:text-red-500 transition-colors uppercase font-mono cursor-pointer border-none bg-transparent"
+                  title="Clear SAT"
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
           </div>
 
           <div className="space-y-1.5">
@@ -547,7 +584,7 @@ export const ProfileForm: React.FC<ProfileFormProps> = ({
               id="profile-exp"
               value={profile.workExperienceYears}
               onChange={(e) => updateProfileField('workExperienceYears', Number(e.target.value))}
-              className="w-full text-xs font-mono py-2 px-2 bg-white border border-slate-200 rounded-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              className="w-full text-xs font-mono py-2 px-2 bg-white border border-slate-200 rounded-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
             >
               <option value="0">No Experience</option>
               {[1, 2, 3, 4, 5, 6, 7, 8].map((yr) => (

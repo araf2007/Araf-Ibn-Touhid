@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { scholarships } from './src/scholarshipsData.js';
@@ -8,6 +9,8 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 
 // Lazy-loaded GenAI helper
 function getGenAI(): GoogleGenAI | null {
@@ -33,90 +36,256 @@ app.get('/api/scholarships', (req, res) => {
 });
 
 // ----------------------------------------------------
-// 1.5. PipraPay Payment Gateway Integration
+// 1.5. Local Manual bKash Transaction Submissions Database Setup
 // ----------------------------------------------------
-app.post('/api/payment/verify-piprapay', async (req, res) => {
-  const { trxId, scholarshipId, userId } = req.body;
+const SUBMISSIONS_FILE = path.join(process.cwd(), 'manual_submissions.json');
+
+interface ManualSubmission {
+  trxId: string;
+  userId: string;
+  userEmail: string;
+  userName: string;
+  userIp: string; // Dynamic IP Capture for unauthenticated / authenticated visitors
+  createdAt: number;
+  status: 'pending' | 'approved' | 'rejected';
+  approvedAt: number | null;
+}
+
+// Helper: Securely retrieve remote client IP Address
+function getClientIp(req: express.Request): string {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) {
+    if (typeof forwarded === 'string') {
+      return forwarded.split(',')[0].trim();
+    } else if (Array.isArray(forwarded)) {
+      return forwarded[0].trim();
+    }
+  }
+  return req.ip || req.socket.remoteAddress || 'unknown';
+}
+
+// Ensure the local storage file exists
+function readSubmissions(): ManualSubmission[] {
+  try {
+    if (fs.existsSync(SUBMISSIONS_FILE)) {
+      const data = fs.readFileSync(SUBMISSIONS_FILE, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error('[Manual Submissions DB] Error reading file:', err);
+  }
+  return [];
+}
+
+function writeSubmissions(subs: ManualSubmission[]) {
+  try {
+    fs.writeFileSync(SUBMISSIONS_FILE, JSON.stringify(subs, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('[Manual Submissions DB] Error writing file:', err);
+  }
+}
+
+// ----------------------------------------------------
+// 1.6. Manual bKash Payment API Endpoints
+// ----------------------------------------------------
+
+// Get Admin and Payment info
+app.get('/api/payment/config', (req, res) => {
+  const adminPhone = process.env.BKASH_PERSONAL_NUMBER || '+8801922378319';
+  const entryFee = Number(process.env.BKASH_ENTRY_FEE || '100');
+  res.json({
+    adminPhone,
+    entryFee,
+    currency: 'BDT',
+    instructions: `Send exactly ${entryFee} BDT Send Money (MFS) to ${adminPhone} and enter your 10-character Transaction ID (TrxID) below. The admin will verify your payment and grant access manually.`
+  });
+});
+
+// Submit a Transaction ID for manual verification
+app.post('/api/payment/submit-manual', (req, res) => {
+  const { trxId, userId, userEmail, userName } = req.body;
+  const userIp = getClientIp(req);
 
   if (!trxId) {
     return res.status(400).json({ success: false, error: 'Transaction ID is required.' });
   }
 
-  const sanitizedTrxId = trxId.trim().toUpperCase();
+  const normalizedTrx = String(trxId).trim().toUpperCase();
 
-  // Validate transaction format (standard bkash transaction is typically alphanumeric, 8-20 characters long)
-  if (sanitizedTrxId.length < 8 || sanitizedTrxId.length > 20) {
-    return res.status(400).json({ success: false, error: 'Invalid bKash Transaction ID format. Must be between 8 and 20 alphanumeric characters.' });
+  // Basic validation: 10 alphanumeric chars
+  if (normalizedTrx.length !== 10) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid format! bKash Transaction ID must be exactly 10 alphanumeric characters.'
+    });
   }
 
-  const piprapayApiKey = process.env.PIPRAPAY_API_KEY;
+  const subs = readSubmissions();
+  const existingSub = subs.find(s => s.trxId === normalizedTrx);
 
-  if (piprapayApiKey && piprapayApiKey !== 'MY_PIPRAPAY_API_KEY' && piprapayApiKey.trim() !== '') {
-    try {
-      const piprapayBaseUrl = process.env.PIPRAPAY_BASE_URL && process.env.PIPRAPAY_BASE_URL.trim() !== ''
-        ? process.env.PIPRAPAY_BASE_URL.trim().replace(/\/$/, '')
-        : 'https://api.piprapay.com';
-
-      console.log(`[PipraPay] Connecting to server-side endpoint: ${piprapayBaseUrl}/api/v1/payment/verify`);
-
-      // Connect to real PipraPay verify endpoint using native fetch
-      const response = await fetch(`${piprapayBaseUrl}/api/v1/payment/verify`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${piprapayApiKey}`
-        },
-        body: JSON.stringify({
-          api_key: piprapayApiKey,
-          txn_id: sanitizedTrxId,
-          amount: 10
-        })
+  if (existingSub) {
+    if (existingSub.status === 'approved') {
+      return res.json({
+        success: true,
+        alreadyApproved: true,
+        message: 'This Transaction ID has already been manually verified and approved! Access is unlocked.'
       });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('PipraPay gateway verification returned non-ok status:', response.status, errorText);
-        return res.status(400).json({ success: false, error: 'PipraPay Gateway: Verification rejected or api mismatch on PipraPay servers.' });
-      }
-
-      const data: any = await response.json();
-      // Verify parameters
-      if (data && (data.status === 'success' || data.success === true || (data.data && data.data.status === 'COMPLETED'))) {
-        return res.json({
-          success: true,
-          message: 'bKash TrxID successfully verified via PipraPay Live Gateway.',
-          data
-        });
-      }
-
-      return res.status(400).json({ 
-        success: false, 
-        error: 'PipraPay verification failed: Transaction ID is invalid, spent, or expired.', 
-        gatewayResponse: data 
-      });
-
-    } catch (apiError: any) {
-      console.error('PipraPay network error:', apiError);
-      return res.status(500).json({ 
-        success: false, 
-        error: `PipraPay Network Gateway Error: Is server connected? Details: ${apiError.message || apiError}` 
+    } else {
+      return res.json({
+        success: true,
+        alreadyPending: true,
+        message: 'This Transaction ID is already submitted and is currently pending manual verification by our admin.'
       });
     }
   }
 
-  // Automated sandbox protocol when no live PipraPay API key is provided
-  console.log(`[PipraPay Sandbox] Verifying bKash Transaction: ${sanitizedTrxId} for Scholarship: ${scholarshipId}`);
-  
+  // Create new submission with IP tracking
+  const newSub: ManualSubmission = {
+    trxId: normalizedTrx,
+    userId: userId || 'anonymous_guest',
+    userEmail: userEmail || 'guest@scholarbd.com',
+    userName: userName || 'Anonymous Candidate',
+    userIp,
+    createdAt: Date.now(),
+    status: 'pending',
+    approvedAt: null
+  };
+
+  subs.push(newSub);
+  writeSubmissions(subs);
+
+  console.log(`[Manual Submit] New bKash TrxID submitted: ${normalizedTrx} from IP: ${userIp} by ${userEmail || 'guest'}`);
+
   return res.json({
     success: true,
-    isSandbox: true,
-    message: 'Payment verified via automated PipraPay sandbox protocol.',
-    transaction: {
-      trxId: sanitizedTrxId,
-      amount: 10,
-      payment_method: 'bKash',
-      gateway: 'PipraPay'
+    message: 'bKash Transaction ID submitted successfully! The admin will verify your payment and grant access shortly.'
+  });
+});
+
+// Fetch all submissions (Secure check: Admin only via email validation check)
+app.get('/api/payment/submissions', (req, res) => {
+  const adminEmail = req.headers['x-admin-email'];
+  if (adminEmail !== 'arafibntoihid@gmail.com') {
+    return res.status(403).json({ success: false, error: 'Unauthorized. Admin credentials required.' });
+  }
+
+  res.json({
+    success: true,
+    submissions: readSubmissions()
+  });
+});
+
+// Approve a transaction manually
+app.post('/api/payment/approve', (req, res) => {
+  const adminEmail = req.headers['x-admin-email'];
+  if (adminEmail !== 'arafibntoihid@gmail.com') {
+    return res.status(403).json({ success: false, error: 'Unauthorized. Admin credentials required.' });
+  }
+
+  const { trxId } = req.body;
+  if (!trxId) {
+    return res.status(400).json({ success: false, error: 'Transaction ID is required.' });
+  }
+
+  const normalizedTrx = String(trxId).trim().toUpperCase();
+  const subs = readSubmissions();
+  const match = subs.find(s => s.trxId === normalizedTrx);
+
+  if (!match) {
+    return res.status(404).json({ success: false, error: 'Transaction ID not found.' });
+  }
+
+  match.status = 'approved';
+  match.approvedAt = Date.now();
+  writeSubmissions(subs);
+
+  console.log(`[Manual Approve] Admin approved bKash TrxID: ${normalizedTrx} for IP: ${match.userIp}, Email: ${match.userEmail}`);
+
+  res.json({
+    success: true,
+    message: `bKash TrxID ${normalizedTrx} approved successfully! User is now unlocked.`
+  });
+});
+
+// Reject a transaction manually
+app.post('/api/payment/reject', (req, res) => {
+  const adminEmail = req.headers['x-admin-email'];
+  if (adminEmail !== 'arafibntoihid@gmail.com') {
+    return res.status(403).json({ success: false, error: 'Unauthorized. Admin credentials required.' });
+  }
+
+  const { trxId } = req.body;
+  if (!trxId) {
+    return res.status(400).json({ success: false, error: 'Transaction ID is required.' });
+  }
+
+  const normalizedTrx = String(trxId).trim().toUpperCase();
+  const subs = readSubmissions();
+  const match = subs.find(s => s.trxId === normalizedTrx);
+
+  if (!match) {
+    return res.status(404).json({ success: false, error: 'Transaction ID not found.' });
+  }
+
+  match.status = 'rejected';
+  match.approvedAt = null;
+  writeSubmissions(subs);
+
+  console.log(`[Manual Reject] Admin rejected bKash TrxID: ${normalizedTrx}`);
+
+  res.json({
+    success: true,
+    message: `bKash TrxID ${normalizedTrx} rejected.`
+  });
+});
+
+// Get user's active manual approval status (handles IP-based lifetime access validation)
+app.get('/api/payment/status', (req, res) => {
+  const { userId, trxId } = req.query;
+  const clientIp = getClientIp(req);
+  const subs = readSubmissions();
+
+  // 1. If check by specific TrxID
+  if (trxId) {
+    const match = subs.find(s => s.trxId === String(trxId).trim().toUpperCase());
+    if (match) {
+      return res.json({
+        success: true,
+        status: match.status,
+        hasApprovedAccess: match.status === 'approved',
+        clientIp
+      });
     }
+  }
+
+  // 2. Check if current client IP address has ANY approved subscription records (IP Lock Bypass)
+  const isIpApproved = subs.some(s => s.userIp === clientIp && s.status === 'approved');
+  if (isIpApproved) {
+    return res.json({
+      success: true,
+      status: 'approved',
+      hasApprovedAccess: true,
+      clientIp,
+      origin: 'IP Address'
+    });
+  }
+
+  // 3. Otherwise, check if user has ANY approved transaction under authenticated profile
+  if (userId) {
+    const hasApproved = subs.some(s => s.userId === userId && s.status === 'approved');
+    return res.json({
+      success: true,
+      hasApprovedAccess: hasApproved,
+      clientIp,
+      origin: 'User Account'
+    });
+  }
+
+  // Fallback default
+  return res.json({
+    success: true,
+    hasApprovedAccess: false,
+    clientIp
   });
 });
 
@@ -298,9 +467,18 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Server] Live and running on http://0.0.0.0:${PORT}`);
-  });
+  // Only bind port listener if not running in a Serverless environment (like Vercel)
+  if (!process.env.VERCEL) {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`[Server] Live and running on http://0.0.0.0:${PORT}`);
+    });
+  } else {
+    console.log('[Server] Vercel Serverless Function context detected. Skipping manual app.listen port binding.');
+  }
 }
 
+// Boot the server locally or in container mode
 startServer();
+
+// Export express app handler for Vercel Serverless routing compatibility
+export default app;

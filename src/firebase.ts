@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, User } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, User, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, deleteDoc, Timestamp, getDocFromServer } from 'firebase/firestore';
 import { UserProfile } from './types.js';
 import firebaseConfig from './components/firebase-applet-config.json';
@@ -11,6 +11,7 @@ export const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope('https://www.googleapis.com/auth/drive.readonly');
 googleProvider.addScope('https://www.googleapis.com/auth/gmail.readonly');
 googleProvider.addScope('https://www.googleapis.com/auth/gmail.send');
+googleProvider.addScope('https://www.googleapis.com/auth/calendar.events');
 
 // In-memory cache for the OAuth access token
 let cachedAccessToken: string | null = null;
@@ -97,6 +98,7 @@ export async function saveUserProfile(uid: string, profile: UserProfile) {
       workExperienceYears: profile.workExperienceYears,
       fieldOfStudy: profile.fieldOfStudy,
       hasMoi: profile.hasMoi,
+      satScore: profile.satScore || 0,
       updatedAt: Timestamp.now()
     };
     
@@ -121,7 +123,8 @@ export async function fetchUserProfile(uid: string): Promise<UserProfile | null>
         ieltsScore: Number(data.ieltsScore),
         workExperienceYears: Number(data.workExperienceYears),
         fieldOfStudy: String(data.fieldOfStudy),
-        hasMoi: Boolean(data.hasMoi)
+        hasMoi: Boolean(data.hasMoi),
+        satScore: data.satScore ? Number(data.satScore) : 0
       };
     }
     return null;
@@ -191,6 +194,31 @@ export async function loginWithGoogle(): Promise<User> {
 export async function logout() {
   await signOut(auth);
   cachedAccessToken = null;
+}
+
+// Log in with email and password
+export async function loginWithEmail(email: string, password: string): Promise<User> {
+  try {
+    const result = await signInWithEmailAndPassword(auth, email.trim(), password);
+    return result.user;
+  } catch (error) {
+    console.error('Email Sign-In Failure:', error);
+    throw error;
+  }
+}
+
+// Register with email, password, and custom display name
+export async function registerWithEmail(email: string, password: string, displayName: string): Promise<User> {
+  try {
+    const result = await createUserWithEmailAndPassword(auth, email.trim(), password);
+    if (result.user && displayName.trim()) {
+      await updateProfile(result.user, { displayName: displayName.trim() });
+    }
+    return result.user;
+  } catch (error) {
+    console.error('Email Registration Failure:', error);
+    throw error;
+  }
 }
 
 // Helper: Fetch Payments to check if a scholarship has been unlocked

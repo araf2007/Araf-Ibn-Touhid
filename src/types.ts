@@ -1,3 +1,9 @@
+export interface TimelinePhase {
+  phase: string;
+  months: string; // Period/Timespan
+  tasks: string[]; // Specific actionable steps
+}
+
 export interface Scholarship {
   id: string;
   title: string;
@@ -16,6 +22,8 @@ export interface Scholarship {
   tipsForBangladeshis: string[];
   officialLink: string;
   popularMajors: string[];
+  timelineStrategy: TimelinePhase[];
+  monetaryValue?: number;
 }
 
 export interface UserProfile {
@@ -25,6 +33,7 @@ export interface UserProfile {
   workExperienceYears: number;
   fieldOfStudy: string;
   hasMoi: boolean; // Medium of Instruction certificate from Bangladeshi university
+  satScore?: number; // SAT score for undergraduate target applicants (Optional, typically 400 - 1600)
   linkedDocuments?: { id: string; name: string; url: string; type: string }[];
 }
 

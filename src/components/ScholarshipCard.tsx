@@ -41,12 +41,12 @@ export const ScholarshipCard: React.FC<ScholarshipCardProps> = ({
 
       <div>
         {/* Flag, Country & Funding Type */}
-        <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm text-xs font-semibold bg-slate-50 text-slate-800 border border-slate-200">
             <span>{scholarship.flag}</span>
             <span>{scholarship.country}</span>
           </span>
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             {onToggleBookmark && (
               <button
                 onClick={(e) => {
@@ -62,6 +62,12 @@ export const ScholarshipCard: React.FC<ScholarshipCardProps> = ({
               >
                 <Bookmark className="w-3.5 h-3.5" fill={isBookmarked ? "currentColor" : "none"} />
               </button>
+            )}
+            {scholarship.monetaryValue && scholarship.monetaryValue > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200" title="Estimated total value of the absolute funding package in USD">
+                <span className="text-[10px]">💰</span>
+                <span>${scholarship.monetaryValue.toLocaleString()}</span>
+              </span>
             )}
             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-xs font-bold ${
               scholarship.fundingType === 'Fully Funded' 
@@ -180,7 +186,7 @@ export const ScholarshipCard: React.FC<ScholarshipCardProps> = ({
           ) : (
             <>
               <span>AI Match Report</span>
-              <span className="text-[10px] font-mono font-black text-rose-600 shrink-0 bg-pink-105 bg-pink-100 px-1 py-0.2 rounded-xs border border-pink-200 leading-none">10 ৳</span>
+              <span className="text-[10px] font-mono font-black text-rose-600 shrink-0 bg-pink-105 bg-pink-100 px-1 py-0.2 rounded-xs border border-pink-200 leading-none">100 ৳</span>
             </>
           )}
         </button>
