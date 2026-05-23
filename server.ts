@@ -1,7 +1,6 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
-import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { scholarships } from './src/scholarshipsData.js';
 
@@ -453,7 +452,8 @@ Keep answers formatted in beautiful, spacing-friendly Markdown.
 const isProd = process.env.NODE_ENV === 'production';
 
 async function startServer() {
-  if (!isProd) {
+  if (!isProd && !process.env.VERCEL) {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
